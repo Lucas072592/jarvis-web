@@ -22,7 +22,7 @@
     .panel{margin-top:22px;border:1px solid var(--line);background:#071426cc;border-radius:16px;padding:15px;box-shadow:0 10px 30px #0004}.panel-title{font-size:11px;letter-spacing:.2em;color:var(--cyan);margin-bottom:10px}
     #transcript{color:#d9efff;min-height:42px;white-space:pre-wrap;line-height:1.5}#chat{display:flex;flex-direction:column;gap:10px;max-height:260px;overflow:auto}.msg{padding:10px 12px;border-radius:12px;line-height:1.45;font-size:14px;white-space:pre-wrap}.user{align-self:flex-end;background:#103d5d;max-width:90%}.assistant{align-self:flex-start;background:#0b2239;border:1px solid #153c59;max-width:95%}
     .entry{display:flex;gap:8px;margin-top:12px}.entry input{min-width:0;flex:1;background:#06101e;border:1px solid #204765;border-radius:10px;color:var(--text);padding:12px;font-size:15px}.entry button{min-width:75px}
-    details{margin-top:16px;color:var(--muted);font-size:12px}summary{cursor:pointer;color:var(--cyan)}.settings{display:grid;gap:10px;margin-top:12px}.settings label{display:flex;justify-content:space-between;align-items:center;gap:12px}.settings select,.settings input{background:#06101e;color:var(--text);border:1px solid #204765;border-radius:8px;padding:8px;max-width:65%}
+    details{margin-top:16px;color:var(--muted);font-size:12px}summary{cursor:pointer;color:var(--cyan)}.settings{display:grid;gap:10px;margin-top:12px}.settings label{display:flex;justify-content:space-between;align-items:center;gap:12px}.settings select,.settings input{background:#06101e;color:var(--text);border:1px solid #204765;border-radius:8px;padding:8px;width:60%}
     footer{text-align:center;color:#59758c;font-size:11px;margin-top:auto;padding-top:25px}
     @media(max-width:420px){.orb{width:175px;height:175px}.core{font-size:38px}.btn{min-width:115px;padding:12px 13px}}
   </style>
@@ -42,8 +42,9 @@
     <label>Voz <select id="voiceSelect"><option value="">Voz padrão do aparelho</option></select></label>
     <label>Velocidade <input id="rate" type="range" min=".8" max="1.15" step=".05" value=".95"></label>
     <label>Tom <input id="pitch" type="range" min=".75" max="1.15" step=".05" value=".9"></label>
-    <label>Endpoint de IA <input id="endpoint" type="url" placeholder="https://seu-servidor/ask"></label>
-  </div><p>O endpoint é opcional. Sem ele, o JARVIS usa respostas locais demonstrativas. Não coloque uma chave secreta de API neste campo nem diretamente no HTML.</p></details>
+    <label>Endpoint de IA <input id="endpoint" type="url" value="https://api.groq.com/openai/v1/chat/completions" placeholder="https://api.groq.com/openai/v1/chat/completions"></label>
+    <label>Chave API (Groq) <input id="apiKey" type="password" placeholder="gsk_..."></label>
+  </div><p>Sua chave API fica salva apenas na memória local deste navegador (nunca é enviada para o GitHub). Sem chave, o JARVIS usa respostas locais.</p></details>
   <footer>JARVIS WEB 1.0 · Protótipo pessoal · Microfone depende de permissão do navegador</footer>
 </main>
 <script>
@@ -51,8 +52,15 @@
   const $ = id => document.getElementById(id);
   const orb=$('orb'), status=$('status'), orbLabel=$('orbLabel'), transcript=$('transcript'), chat=$('chat');
   const micBtn=$('micBtn'), stopBtn=$('stopBtn'), sendBtn=$('sendBtn'), textInput=$('textInput');
+  const endpointInput=$('endpoint'), apiKeyInput=$('apiKey');
   let recognition=null, listening=false, voices=[];
   const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+
+  // Carrega configurações salvas no aparelho
+  if(localStorage.getItem('jarvis_endpoint')) endpointInput.value = localStorage.getItem('jarvis_endpoint');
+  if(localStorage.getItem('jarvis_apikey')) apiKeyInput.value = localStorage.getItem('jarvis_apikey');
+  endpointInput.addEventListener('change', () => localStorage.setItem('jarvis_endpoint', endpointInput.value.trim()));
+  apiKeyInput.addEventListener('change', () => localStorage.setItem('jarvis_apikey', apiKeyInput.value.trim()));
 
   function setState(state,message){
     orb.classList.toggle('listening',state==='listening'); orb.classList.toggle('speaking',state==='speaking');
@@ -89,20 +97,40 @@
     if(t.includes('seu nome')||t.includes('quem é você')||t.includes('quem e voce')) return 'Sou JARVIS, seu assistente pessoal. Esta é minha primeira versão web.';
     if(t.includes('hora')) return 'Agora são '+new Intl.DateTimeFormat('pt-BR',{hour:'2-digit',minute:'2-digit'}).format(new Date())+'.';
     if(t.includes('data')||t.includes('dia é')||t.includes('dia e')) return 'Hoje é '+new Intl.DateTimeFormat('pt-BR',{dateStyle:'full'}).format(new Date())+'.';
-    if(t.includes('ajuda')||t.includes('comandos')) return 'Nesta versão posso conversar por voz, responder perguntas simples sobre data e hora e registrar mensagens. A conexão com uma IA externa pode ser adicionada por um servidor seguro.';
+    if(t.includes('ajuda')||t.includes('comandos')) return 'Nesta versão posso conversar por voz, responder perguntas simples sobre data e hora e registrar mensagens.';
     if(t.includes('obrigad')) return 'Sempre à disposição.';
-    return 'Entendi. Ainda estou na versão inicial e não tenho um modelo de inteligência artificial conectado. Podemos adicionar essa capacidade configurando um servidor seguro no endpoint de IA.';
+    return 'Entendi. Para respostas inteligentes completas, adicione sua chave de API da Groq nas Configurações do sistema.';
   }
   async function getReply(text){
-    const endpoint=$('endpoint').value.trim();
-    if(endpoint){
+    const endpoint = endpointInput.value.trim();
+    const apiKey = apiKeyInput.value.trim();
+
+    if(endpoint && apiKey){
       try{
-        const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})});
-        if(!response.ok) throw new Error('HTTP '+response.status);
-        const data=await response.json();
-        if(typeof data.reply==='string'&&data.reply.trim()) return data.reply;
-        throw new Error('Resposta esperada: { "reply": "..." }');
-      }catch(e){return 'Não consegui acessar o servidor de IA. Verifique o endpoint e a conexão. Detalhe: '+e.message;}
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              { role: 'system', content: 'Você é o JARVIS, um assistente pessoal inteligente, direto e prestativo. Responda em português de forma concisa, ideal para ser lida em voz alta.' },
+              { role: 'user', content: text }
+            ],
+            temperature: 0.7
+          })
+        });
+        if(!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        if(data.choices && data.choices[0] && data.choices[0].message){
+          return data.choices[0].message.content.trim();
+        }
+        throw new Error('Formato de resposta inesperado');
+      }catch(e){
+        return 'Não consegui acessar o servidor de IA. Verifique sua chave API e conexão. Detalhe: ' + e.message;
+      }
     }
     return localReply(text);
   }
